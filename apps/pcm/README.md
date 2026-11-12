@@ -41,6 +41,16 @@ npm.cmd run pcm:migrate
 
 O runner PCM registra versões e ignora as já aplicadas, com bloqueio e transação. As migrações 001/010/020/030/040 adicionam o domínio; não apagam tabelas do 5S. A 040 exige código de ativo único na empresa inteira, ignorando caixa e espaços externos; duplicidades preexistentes interrompem a migração para conciliação explícita. Não apague linhas para resolver esse conflito automaticamente.
 
+Se o login e o 5S funcionarem, mas a Manutenção apresentar erro de ativação/atualização, confira se essas migrações foram executadas **no mesmo banco usado pela instalação publicada**. Publicar o código no GitHub/Vercel não as executa. Uma consulta somente de leitura no Neon ajuda a confirmar:
+
+```sql
+SELECT to_regclass('pcm.teams') AS equipes,
+       to_regclass('pcm.orders') AS ordens,
+       to_regclass('pcm.schema_migrations') AS versoes;
+```
+
+Resultado nulo indica tabela ausente. Após autorização do responsável, configure `DATABASE_URL` em `.env.local` (ignorado pelo Git) ou no terminal administrativo e execute `npm.cmd run pcm:migrate` na raiz. Esse comando aplica somente versões PCM pendentes. Reabra a Manutenção e confira os cadastros. Mensagens da API agora exibem a referência de suporte; tabelas/colunas ausentes retornam `PCM_SETUP_REQUIRED`, sem expor SQL ou credenciais.
+
 Antes da publicação, use backup e o fluxo de homologação existente. Para desfazer código, retorne à versão anterior do aplicativo e oculte/revogue o módulo, preservando schema, arquivos e histórico. Não executar DROP SCHEMA, reset ou rollback com exclusão de dados. Mudanças futuras devem usar novas migrações aditivas.
 
 ## Acessos

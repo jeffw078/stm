@@ -13,6 +13,7 @@ import {PlanningService} from './planning-service';
 import {ImportService} from './import-service';
 import {privateStore} from './storage';
 import {serializePcm} from './presentation';
+import {pcmInfrastructureFailure} from './failures';
 
 export const json=(value:unknown,status=200)=>NextResponse.json(serializePcm(value),{status,headers:{'Cache-Control':'private, no-store'}});
 async function limitedBody(req:NextRequest,limit:number){
@@ -124,7 +125,7 @@ export async function pcmRequest(req:NextRequest,ctx:{params:Promise<{path:strin
   if(code==='23505')return json({error:'Já existe um registro com este código ou vínculo.',requestId},409);
   if(['23503','23514','P0001'].includes(code))return json({error:'Associação incompatível, ciclo ou dado inválido. Confira os campos e a unidade.',requestId},400);
   console.error('PCM_REQUEST_FAILED',{requestId,code:code??'INTERNAL'});
-  return json({error:'Não foi possível concluir. Verifique a configuração e informe o código de referência ao suporte.',requestId},503);
+  const failure=pcmInfrastructureFailure(e,requestId);return json(failure.body,failure.status);
  }
 }
 async function withExportPermission(access:AccessService,actor:any){const ctx=await access.context(actor);if(!ctx.permissions.includes('export'))throw new AppError('Exportação não autorizada.',403);}

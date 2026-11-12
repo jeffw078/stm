@@ -6,7 +6,7 @@ import { STATUS_LABELS,scoreLabel } from '@/lib/domain';
 export async function api<T=any>(path:string,body?:unknown,method?:string):Promise<T>{
   const response=await fetch('/api/'+path,{method:method??(body?'POST':'GET'),headers:body instanceof FormData?undefined:body?{'Content-Type':'application/json'}:undefined,body:body===undefined?undefined:body instanceof FormData?body:JSON.stringify(body),cache:'no-store'});
   const data=await response.json();
-  if(!response.ok){if(response.status===401&&!path.startsWith('auth/'))window.location.assign('/login');if(response.status===428)window.location.assign('/trocar-senha');throw new Error(data.error??'Não foi possível concluir.');}return data;
+  if(!response.ok){if(response.status===401&&!path.startsWith('auth/'))window.location.assign('/login');if(response.status===428)window.location.assign('/trocar-senha');const reference=typeof data.requestId==='string'?' Referência: '+data.requestId:'';throw new Error((data.error??'Não foi possível concluir.')+reference);}return data;
 }
 export function useData<T=any>(path:string|null){
   const [data,setData]=useState<T|null>(null),[error,setError]=useState(''),[loading,setLoading]=useState(true),[nonce,setNonce]=useState(0);
