@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import type { Database,Queryable,Row } from './db';
-import { AppError,calculateScores,canEdit,canRead,assertTransition,requireManager,requireMaster,previousMonth,validDate,type Actor } from './domain';
+import { AppError,calculateScores,canEdit,canRead,assertTransition,requireManager,requireMaster,requireModule,fiveSRole,canViewDashboard,previousMonth,validDate,type Actor } from './domain';
 import { QUESTIONS } from './questions';
 import { parseHistory,normalize } from './history-import';
 import { hashPassword,tokenHash } from './security';
 import { authorizeMutation } from './authorization';
+import { grantsSchema,grantsSelect,writeGrants } from './module-access';
 const uid=()=>randomUUID();
 const nameSchema=z.string().trim().min(2).max(160);
 const dateSchema=z.string().refine(validDate,'Data inválida.');
@@ -20,9 +21,10 @@ export class Service{
   constructor(public db:Database){}
   private transaction<T>(actor:Actor,fn:(q:Queryable)=>Promise<T>){return this.db.transaction(async q=>{await authorizeMutation(q,actor);return fn(q);});}
   async catalog(actor:Actor){
+    requireModule(actor,'5s');
     const units=(await this.db.query('SELECT * FROM sm5s.units ORDER BY name')).rows;
     const sectors=(await this.db.query('SELECT s.*,u.name AS unit FROM sm5s.sectors s JOIN sm5s.units u ON u.id=s.unit_id ORDER BY u.name,s.name')).rows;
-    const users=actor.role==='AUDITOR'?[]:(await this.db.query('SELECT id,name,email,role,active,must_change_password FROM sm5s.users ORDER BY name')).rows;
+    const users=fiveSRole(actor)==='AUDITOR'||fiveSRole(actor)==='VIEWER'?[]:(await this.db.query(`SELECT u.id,u.name,u.email,u.role,u.active,u.must_change_password,${grantsSelect} FROM sm5s.users u ORDER BY u.name`)).rows.filter(u=>['MASTER','ADMIN','AUDITOR'].includes(fiveSRole(u as Actor)??''));
     const {rows}=await this.db.query("SELECT max(date)::text AS latest FROM sm5s.audits WHERE status='FINALIZED'");
     return {units,sectors,users,latestPeriod:rows[0]?.latest?.slice(0,7)??new Date().toISOString().slice(0,7)};
   }
@@ -31,11 +33,26 @@ export class Service{
   async setCatalogActive(actor:Actor,type:'unit'|'sector',id:string,active:boolean){requireMaster(actor);return this.transaction(actor,async q=>{await q.query(`UPDATE sm5s.${type==='unit'?'units':'sectors'} SET active=$2 WHERE id=$1`,[id,active]);return {ok:true};});}
   async createUser(actor:Actor,input:unknown){
     requireMaster(actor);
-    const v=z.object({name:nameSchema,email:z.email().max(254),role:z.enum(['ADMIN','AUDITOR']),password:z.string()}).parse(input);
+    const v=z.object({name:nameSchema,email:z.email().max(254),role:z.enum(['ADMIN','AUDITOR','USER']),password:z.string(),modules:grantsSchema.optional()}).parse(input);
+    const modules=v.modules??(v.role==='USER'?{}:{'5s':{level:v.role==='ADMIN'?'ADMIN' as const:'USER' as const,sublevel:v.role==='ADMIN'?'MANAGER' as const:'OPERATOR' as const}});
     const hash=await hashPassword(v.password);
     return this.transaction(actor,async q=>{
       const result=await q.query("INSERT INTO sm5s.users(id,email,name,role,password_hash,temporary_expires_at) VALUES($1,$2,$3,$4,$5,now()+interval '72 hours') RETURNING id,name,email,role,active,must_change_password",[uid(),v.email.trim().toLowerCase(),v.name,v.role,hash]);
+      await writeGrants(q,result.rows[0].id,modules);
       await event(q,actor,null,'USER_CREATED',`${v.email} / ${v.role}`);return result.rows[0];
+    });
+  }
+  async listUsers(actor:Actor){requireMaster(actor);return (await this.db.query(`SELECT u.id,u.name,u.email,u.role,u.active,u.must_change_password,${grantsSelect} FROM sm5s.users u ORDER BY u.name`)).rows;}
+  async setUserAccess(actor:Actor,id:string,input:unknown){
+    requireMaster(actor);const modules=grantsSchema.parse(input);
+    return this.transaction(actor,async q=>{
+      const user=(await q.query("SELECT id FROM sm5s.users WHERE id=$1 AND role<>'MASTER' FOR UPDATE",[id])).rows[0];
+      if(!user)throw new AppError('Usuário não encontrado ou Master protegido.',404);
+      await writeGrants(q,id,modules);
+      await q.query('UPDATE sm5s.users SET auth_version=auth_version+1 WHERE id=$1',[id]);
+      await q.query('DELETE FROM sm5s.sessions WHERE user_id=$1',[id]);
+      await event(q,actor,null,'MODULE_ACCESS_CHANGED',JSON.stringify({userId:id,modules}));
+      return {ok:true};
     });
   }
   async resetPassword(actor:Actor,id:string,password:string){
@@ -59,16 +76,17 @@ export class Service{
     requireManager(actor);const v=planSchema.parse(input);
     return this.transaction(actor,async q=>{
       const sector=(await q.query('SELECT s.id FROM sm5s.sectors s JOIN sm5s.units u ON u.id=s.unit_id WHERE s.id=$1 AND s.active AND u.active',[v.sectorId])).rows[0];
-      const auditor=(await q.query('SELECT id,name FROM sm5s.users WHERE id=$1 AND active',[v.auditorId])).rows[0];
-      if(!sector||!auditor)throw new AppError('Setor ou auditor indisponível.');
+      const auditor=(await q.query(`SELECT u.id,u.name,u.role,${grantsSelect} FROM sm5s.users u WHERE u.id=$1 AND u.active FOR SHARE OF u`,[v.auditorId])).rows[0];
+      if(!sector||!auditor||!['MASTER','ADMIN','AUDITOR'].includes(fiveSRole(auditor as Actor)??''))throw new AppError('Setor ou auditor indisponível.');
       const r=(await q.query("INSERT INTO sm5s.audits(id,sector_id,date,auditor_id,auditor_name,status,source,notes,questions,created_by) VALUES($1,$2,$3,$4,$5,'PLANNED','LIVE',$6,$7::jsonb,$8) RETURNING id,revision",[uid(),v.sectorId,v.date,v.auditorId,auditor.name,v.notes,JSON.stringify(QUESTIONS),actor.id])).rows[0];
       await event(q,actor,r.id,'PLANNED',v.notes);return r;
     });
   }
   async listAudits(actor:Actor,filters:Filters={}){
+    requireModule(actor,'5s');
     const clauses:string[]=[];const values:unknown[]=[];
     const add=(sql:string,v:unknown)=>{values.push(v);clauses.push(sql.replace('?',`$${values.length}`));};
-    if(actor.role==='AUDITOR')add('a.auditor_id=?',actor.id);
+    if(fiveSRole(actor)==='AUDITOR')add('a.auditor_id=?',actor.id);
     if(filters.from){previousMonth(filters.from);add('a.date>=?::date',filters.from+'-01');}
     if(filters.to){previousMonth(filters.to);add("a.date<(?::date+interval '1 month')",filters.to+'-01');}
     if(filters.unit)add('u.id=?',filters.unit);if(filters.sector)add('s.id=?',filters.sector);
@@ -77,6 +95,7 @@ export class Service{
     return (await this.db.query(selectAudit+(clauses.length?' WHERE '+clauses.join(' AND '):'')+' ORDER BY a.date DESC,s.name LIMIT 1500',values)).rows;
   }
   async getAudit(actor:Actor,id:string){
+    requireModule(actor,'5s');
     const a=(await this.db.query(selectAudit+' WHERE a.id=$1',[id])).rows[0];
     if(!a)throw new AppError('Auditoria não encontrada.',404);if(!canRead(actor,a as any))throw new AppError('Acesso não autorizado.',403);
     const answers=(await this.db.query('SELECT question_id,sense,score,note FROM sm5s.answers WHERE audit_id=$1 ORDER BY question_id',[id])).rows;
@@ -118,7 +137,7 @@ export class Service{
     });
   }
   async dashboard(actor:Actor,filters:Filters){
-    requireManager(actor);const audits=await this.listAudits(actor,filters);
+    if(!canViewDashboard(actor))throw new AppError('Acesso restrito aos indicadores do 5S.',403);const audits=await this.listAudits(actor,filters);
     const ids=audits.filter(a=>a.status==='FINALIZED').map(a=>a.id);
     const summaries=ids.length?(await this.db.query('SELECT audit_id,sense,score FROM sm5s.summaries WHERE audit_id=ANY($1::text[])',[ids])).rows:[];
     const selectedSense=filters.sense?Number(filters.sense):null;

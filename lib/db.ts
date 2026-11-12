@@ -5,7 +5,10 @@ export interface Database extends Queryable{transaction<T>(fn:(q:Queryable)=>Pro
 let pool:Pool|undefined;
 export function getDatabase():Database{
   if(!process.env.DATABASE_URL)throw new Error('DATABASE_URL não configurada no servidor.');
-  pool??=new Pool({connectionString:process.env.DATABASE_URL,max:3,idleTimeoutMillis:10000,connectionTimeoutMillis:15000});
+  // PGlite's preview socket multiplexes a single backend. Keep complete transactions
+  // on one client there; production PostgreSQL retains the normal pool.
+  const localPreview=process.env.NODE_ENV!=='production'&&process.env.SM5S_LOCAL_PREVIEW==='1';
+  pool??=new Pool({connectionString:process.env.DATABASE_URL,max:localPreview?1:3,idleTimeoutMillis:10000,connectionTimeoutMillis:15000});
   const p=pool;
   return {query:(text,values)=>p.query(text,values),transaction:async fn=>{
     const c=await p.connect();

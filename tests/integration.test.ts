@@ -19,9 +19,55 @@ async function fixture(){
   const outsider={...auditor,id:randomUUID(),email:'other@test.local'};
   const hash=await hashPassword('Senha-para-teste-123!');
   for(const u of [master,auditor,outsider])await db.query('INSERT INTO sm5s.users(id,email,name,role,password_hash,must_change_password) VALUES($1,$2,$3,$4,$5,false)',[u.id,u.email,u.name,u.role,hash]);
+  await pg.exec(readFileSync('migrations/003_module_access.sql','utf8'));
   const service=new Service(db);const unit=await service.createUnit(master,'Administrativo');const sector=await service.createSector(master,unit.id,'Qualidade');
   return {pg,db,master,auditor,outsider,sector,service,auth:new Authentication(db)};
 }
+
+test('permissões por módulo isolam leituras, planejamento e evidências do 5S',async()=>{
+  const f=await fixture();try{
+    const user=await f.service.createUser(f.master,{name:'Manutenção',email:'maintenance@test.local',role:'USER',password:'TemporariaSegura123!',modules:{maintenance:{level:'ADMIN',sublevel:'MANAGER'}}});
+    await f.db.query('UPDATE sm5s.users SET must_change_password=false WHERE id=$1',[user.id]);
+    const login=await f.auth.login(user.email,'TemporariaSegura123!','maintenance');
+    const actor=(await f.auth.getUser(login.token))!;
+    const audit=await f.service.createAudit(f.master,{sectorId:f.sector.id,date:'2026-11-12',auditorId:f.auditor.id});
+    await assert.rejects(()=>f.service.listAudits(actor),/acesso/i);
+    await assert.rejects(()=>f.service.catalog(actor),/acesso/i);
+    await assert.rejects(()=>f.service.dashboard(actor,{}),/acesso|gestão/i);
+    await assert.rejects(()=>f.service.getAudit(actor,audit.id),/acesso/i);
+    await assert.rejects(()=>f.service.createAudit(f.master,{sectorId:f.sector.id,date:'2026-11-13',auditorId:actor.id}),/auditor/i);
+    const photo=await new EvidenceService(f.db).add(f.auditor,audit.id,1,await sharp({create:{width:20,height:20,channels:3,background:'red'}}).png().toBuffer(),'Teste');
+    await assert.rejects(()=>new EvidenceService(f.db).read(actor,photo.id),/Evidência|acesso/i);
+  }finally{await f.pg.close();}
+});
+
+test('alterar módulos revoga sessões e bloqueia requisições capturadas',async()=>{
+  const f=await fixture();try{
+    const audit=await f.service.createAudit(f.master,{sectorId:f.sector.id,date:'2026-11-12',auditorId:f.auditor.id});
+    const login=await f.auth.login(f.auditor.email,'Senha-para-teste-123!','captured');
+    const actor=(await f.auth.getUser(login.token))!;
+    await f.service.setUserAccess(f.master,f.auditor.id,{});
+    assert.equal(await f.auth.getUser(login.token),null);
+    await assert.rejects(()=>f.service.saveAnswers(actor,audit.id,{revision:1,answers:[],senseNotes:{}}),/revogado|expirada/i);
+    await assert.rejects(()=>f.service.setUserAccess(f.auditor,f.outsider.id,{}),/Master/);
+    await assert.rejects(()=>f.service.setUserAccess(f.master,f.master.id,{}),/protegido|Master/);
+    await f.pg.exec(readFileSync('migrations/003_module_access.sql','utf8'));
+    assert.equal((await f.db.query("SELECT * FROM sm5s.module_access WHERE user_id=$1",[f.auditor.id])).rows.length,0);
+  }finally{await f.pg.close();}
+});
+
+test('consulta do 5S não pode alterar auditoria ou planejar',async()=>{
+  const f=await fixture();try{
+    await f.service.setUserAccess(f.master,f.auditor.id,{'5s':{level:'USER',sublevel:'VIEWER'}});
+    const login=await f.auth.login(f.auditor.email,'Senha-para-teste-123!','viewer');
+    const actor=(await f.auth.getUser(login.token))!;
+    const a=await f.service.createAudit(f.master,{sectorId:f.sector.id,date:'2026-11-12',auditorId:f.outsider.id});
+    assert.equal((await f.service.getAudit(actor,a.id)).editable,false);
+    await f.service.dashboard(actor,{});
+    await assert.rejects(()=>f.service.saveAnswers(actor,a.id,{revision:1,answers:[],senseNotes:{}}),/alterar/);
+    await assert.rejects(()=>f.service.createAudit(actor,{sectorId:f.sector.id,date:'2026-11-13',auditorId:f.outsider.id}),/gestão/);
+  }finally{await f.pg.close();}
+});
 test('fluxo integral: controle de acesso, versão concorrente, envio, devolução e finalização',async()=>{
   const f=await fixture();try{
     const a=await f.service.createAudit(f.master,{sectorId:f.sector.id,date:'2026-11-06',auditorId:f.auditor.id,notes:'Verificar organização'});

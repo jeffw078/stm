@@ -1,12 +1,13 @@
 import type { Database,Queryable } from './db';
 import { AppError,type User } from './domain';
 import { hashPassword,verifyPassword,randomToken,tokenHash } from './security';
+import { grantsSelect } from './module-access';
 const fakeHash='scrypt$'+'0'.repeat(48)+'$'+'0'.repeat(128);
 export class Authentication{
   constructor(public db:Database){}
   async getUser(token:string|undefined):Promise<User|null>{
     if(!token||token.length>200)return null;
-    const {rows}=await this.db.query(`SELECT u.id,u.email,u.name,u.role,u.active,u.must_change_password,u.auth_version FROM sm5s.sessions s JOIN sm5s.users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND s.auth_version=u.auth_version AND u.active AND (NOT u.must_change_password OR u.temporary_expires_at>now())`,[tokenHash(token)]);
+    const {rows}=await this.db.query(`SELECT u.id,u.email,u.name,u.role,u.active,u.must_change_password,u.auth_version,${grantsSelect} FROM sm5s.sessions s JOIN sm5s.users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND s.auth_version=u.auth_version AND u.active AND (NOT u.must_change_password OR u.temporary_expires_at>now())`,[tokenHash(token)]);
     return rows[0] as User??null;
   }
   private async session(q:Queryable,user:{id:string;auth_version:number;must_change_password:boolean}){

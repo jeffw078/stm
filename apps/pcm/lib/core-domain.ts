@@ -1,0 +1,22 @@
+import {z} from 'zod';
+import Decimal from 'decimal.js';
+import {validDate} from '../../../lib/domain';
+
+export const identifier=z.string().trim().min(1).max(100);
+export const short=z.string().trim().max(240);
+export const text=z.string().trim().max(12000);
+export const date=z.string().refine(validDate,'Data inválida');
+export const instant=z.string().datetime({offset:true});
+export const decimal=z.union([z.string(),z.number()]).transform(v=>String(v)).refine(v=>/^\d{1,14}(\.\d{1,6})?$/.test(v)&&new Decimal(v).gte(0),'Decimal não negativo com até seis casas');
+export const positive=decimal.refine(v=>new Decimal(v).gt(0),'Quantidade deve ser positiva');
+export const optionalText=text.nullish();
+export const priority=z.enum(['LOW','NORMAL','HIGH','URGENT']);
+export const orderType=z.enum(['CORRECTIVE','PREVENTIVE','INSPECTION']);
+export const status=z.enum(['PLANNED','SCHEDULED','IN_PROGRESS','WAITING','EXECUTED','CLOSED','CANCELLED']);
+export const assetSchema=z.object({unit_id:identifier,sector_id:identifier.nullish(),parent_id:identifier.nullish(),code:short.min(1),name:short.min(2),description:optionalText,node_type:z.enum(['MACHINE','SYSTEM','ASSEMBLY','COMPONENT','ITEM']),location:optionalText,cost_center:short.nullish(),manufacturer:short.nullish(),model:short.nullish(),serial_number:short.nullish(),patrimony:short.nullish(),material_code:short.nullish(),category:short.nullish(),acquired_on:date.nullish(),installed_on:date.nullish(),lifecycle:z.enum(['ACTIVE','MAINTENANCE','RESERVE','INACTIVE']).default('ACTIVE'),criticality:z.enum(['HIGH','MEDIUM','LOW']).default('MEDIUM'),criticality_reason:optionalText,team_id:identifier.nullish(),notes:optionalText,revision:z.number().int().positive().optional()}).strict();
+export const orderSchema=z.object({unit_id:identifier,asset_id:identifier.nullish(),location:optionalText,description:text.min(3),type:orderType.default('CORRECTIVE'),priority:priority.default('NORMAL'),assignee_id:identifier.nullish(),team_id:identifier.nullish(),planned_start:instant.nullish(),due_at:instant.nullish(),estimated_hours:decimal.nullish(),estimated_person_hours:decimal.nullish(),failure_id:identifier.nullish(),requires_asset:z.boolean().optional(),checklist:z.array(z.object({title:short.min(1),required:z.boolean().default(true),done:z.boolean().default(false)}).strict()).max(500).default([]),plan_version_id:identifier.nullish(),occurrence_id:identifier.nullish()}).strict();
+export const orderUpdateSchema=orderSchema.omit({unit_id:true,plan_version_id:true,occurrence_id:true}).partial().extend({type:orderType.optional(),priority:priority.optional(),checklist:orderSchema.shape.checklist.removeDefault().optional(),revision:z.number().int().positive()}).strict();
+export const requestSchema=z.object({unit_id:identifier,sector_id:identifier.nullish(),asset_id:identifier.nullish(),location:optionalText,description:text.min(3),impact:optionalText,stopped:z.boolean().nullable().optional(),priority:priority.default('NORMAL')}).strict();
+export const materialSchema=z.object({unit_id:identifier,code:short.min(1),name:short.min(2),description:optionalText,manufacturer:short.nullish(),manufacturer_reference:short.nullish(),supplier:short.nullish(),unit:short.min(1),minimum_quantity:decimal.nullish(),safety_stock:decimal.nullish(),unit_cost:decimal.nullish(),notes:optionalText,active:z.boolean().default(true),revision:z.number().int().positive().optional()}).strict();
+export const documentSchema=z.object({title:short.min(2),kind:z.enum(['MANUAL','PHOTO','ATTACHMENT']),asset_id:identifier.optional(),order_id:identifier.optional(),request_id:identifier.optional(),filename:short.min(1),mime_type:z.enum(['application/pdf','image/jpeg','image/png','image/webp']),language:short.nullish(),version:short.nullish(),manufacturer:short.nullish(),document_date:date.nullish(),replaces_id:identifier.nullish(),external_url:z.string().url().refine(v=>new URL(v).protocol==='https:','Use HTTPS').nullish()}).strict();
+export const transitions:Record<string,string[]>={PLANNED:['SCHEDULED','IN_PROGRESS','CANCELLED'],SCHEDULED:['PLANNED','IN_PROGRESS','WAITING','CANCELLED'],IN_PROGRESS:['WAITING','EXECUTED','CANCELLED'],WAITING:['IN_PROGRESS','SCHEDULED','CANCELLED'],EXECUTED:['CLOSED','IN_PROGRESS','CANCELLED'],CLOSED:['IN_PROGRESS'],CANCELLED:[]};

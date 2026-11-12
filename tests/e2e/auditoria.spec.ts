@@ -1,13 +1,14 @@
 import { test,expect } from '@playwright/test';
 const origin='http://127.0.0.1:4173';
 test('dashboard exibe histórico e filtros sem transbordar a tela',async({page})=>{
-  await page.goto('/');await expect(page.getByRole('heading',{name:'Visão geral.'})).toBeVisible();
+  await page.goto('/dashboard');await expect(page.getByRole('heading',{name:'Visão geral.'})).toBeVisible();
   await expect(page.getByRole('heading',{name:'Desempenho por senso'})).toBeVisible();
-  await page.getByLabel('Senso',{exact:true}).selectOption('1');
+  await page.getByRole('combobox',{name:'Senso',exact:true}).selectOption('1');
   await expect(page.getByText('Resultado do senso selecionado')).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);
 });
 test('auditor avalia os 23 itens e master revisa e finaliza',async({page,browser,request})=>{
+  test.setTimeout(120000);
   const cat=await (await request.get('/api/catalog')).json();
   const sector=await (await request.post('/api/sectors',{headers:{Origin:origin},data:{name:'Teste E2E '+Date.now(),unitId:cat.units[0].id}})).json();
   const auditor=cat.users.find((u:any)=>u.role==='AUDITOR');

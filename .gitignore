@@ -9,3 +9,4 @@ playwright-report/
 data/private/
 .superpowers/
 *.log
+/manut.xlsx

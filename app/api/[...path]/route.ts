@@ -44,6 +44,8 @@ async function run(req:NextRequest,ctx:{params:Promise<{path:string[]}>}){
     const actor={...user,session:{hash:tokenHash(token!)}};
     if(user.must_change_password)throw new AppError('Altere a senha temporária para continuar.',428);
     if(endpoint==='me'&&req.method==='GET')return json(user);
+    if(endpoint==='users'&&req.method==='GET')return json(await service.listUsers(user));
+    if(path[0]==='users'&&path.length===3&&path[2]==='access'&&req.method==='POST')return json(await service.setUserAccess(actor,path[1],await body()));
     if(endpoint==='catalog'&&req.method==='GET')return json(await service.catalog(user));
     if(endpoint==='dashboard'&&req.method==='GET')return json(await service.dashboard(user,filters(req)));
     if(endpoint==='audits'&&req.method==='GET')return json(await service.listAudits(user,filters(req)));

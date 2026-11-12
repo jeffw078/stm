@@ -1,0 +1,12 @@
+{
+  "name": "@steelmast/pcm",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Projeto PCM isolado, integrado ao host Next.js e à identidade SteelMast.",
+  "scripts": {
+    "dev": "npm --prefix ../.. run pcm:dev",
+    "build": "npm --prefix ../.. run pcm:build",
+    "test": "npm --prefix ../.. run pcm:test",
+    "migrate": "npm --prefix ../.. run pcm:migrate"
+  }
+}

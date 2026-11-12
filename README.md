@@ -1,6 +1,18 @@
-# SteelMast — Auditoria 5S
+# SteelMast — Plataforma de gestão
 
 Sistema em **Next.js 16 + React 19 + TypeScript**, preparado para **Vercel** e **Neon PostgreSQL**. Interface em português para computador e tablet, com logo e paleta do site oficial SteelMast.
+
+## Painel da empresa e módulos
+
+Após o login (e a troca de senha, quando exigida), todos os usuários chegam ao **Painel da empresa** em `/modulos`. Os cartões exibem somente os módulos autorizados. As rotas e os dados existentes do 5S são mantidos; `/dashboard` continua sendo o painel do 5S.
+
+O Master gerencia as permissões em **Usuários e acessos**. Cada módulo possui nível **Administrador** ou **Usuário**. Para usuários, os subníveis são **Consulta** (leitura), **Operação** (atividades atribuídas) e **Gestão** (planejamento e revisão). Administração de módulo não concede o perfil Master. Importação e cadastros de unidades/setores do 5S continuam restritos ao Master. Alterar permissões encerra as sessões do usuário.
+
+**Atualização de uma instalação existente:** com `DATABASE_URL` configurada para o banco correto, execute `npm run db:migrate` antes de disponibilizar esta versão. A migração `003_module_access.sql` mantém Admins como administradores do 5S e Auditores como usuários de operação do 5S. A reaplicação não restaura acessos removidos.
+
+A migração `004_maintenance_admin.sql` provisiona `michelli.rudnik@steelmast.com.br` como administradora apenas da Manutenção, com a senha temporária solicitada pelo responsável, armazenada somente como hash. Ela exige troca no primeiro acesso e expira **72 horas após a aplicação da migração**. Essa é uma exceção de provisionamento; novas senhas e redefinições continuam exigindo 12 caracteres com letras e números. Se o e-mail já existir, a senha, o perfil e os acessos anteriores são preservados, acrescentando-se a administração da Manutenção. Reaplicar a migração não redefine senha nem restaura permissões. Após expirar, o Master pode redefinir a senha pela tela de usuários.
+
+O módulo de Manutenção está em `/pcm` (`/manutencao` redireciona para ele), com ativos/componentes, chamados, ordens, horas/materiais, manuais privados, preventivas, agenda, indicadores e importação assistida da planilha. O projeto separado e as instruções de migração, acessos, armazenamento privado e agendador estão em [apps/pcm/README.md](apps/pcm/README.md). Sem credenciais de produção neste workspace, a conta e o módulo foram validados em banco descartável; migração e publicação no Neon real seguem o fluxo de homologação.
 
 ## O que está implementado
 
@@ -43,7 +55,7 @@ npm run dev
 
 Abra `http://localhost:3000`. Entre com o e-mail Master e a senha temporária que você definiu. O sistema exigirá uma nova senha antes de liberar qualquer dado. Após o bootstrap, remova `MASTER_TEMP_PASSWORD` do ambiente de execução comum. O comando de bootstrap é idempotente e não redefine uma conta existente.
 
-As migrações criam apenas o schema `sm5s`, sem apagar ou alterar tabelas de outros schemas. A migração 002 permite salvar comentários de perguntas ainda sem pontuação. Ambas podem ser reaplicadas.
+As migrações trabalham apenas no schema `sm5s`, sem apagar ou alterar tabelas de outros schemas. A migração 002 permite salvar comentários de perguntas ainda sem pontuação; 003 e 004 acrescentam os módulos e o provisionamento da Manutenção. Todas podem ser reaplicadas sem redefinir senhas ou restaurar permissões revogadas.
 
 Se a senha temporária do Master expirar, defina uma nova `MASTER_TEMP_PASSWORD` localmente e execute:
 
@@ -133,7 +145,7 @@ npm run check
 npm run build
 ```
 
-`check` executa TypeScript, 24 testes de domínio/segurança/importação/integração PostgreSQL/imagens e varredura de segredos. Os testes usam PGlite, um PostgreSQL em WebAssembly; não precisam do Neon nem alteram seus dados.
+`check` executa TypeScript, 34 testes de domínio/segurança/importação/integração PostgreSQL/imagens/módulos e varredura de segredos. Os testes usam PGlite, um PostgreSQL em WebAssembly; não precisam do Neon nem alteram seus dados.
 
 Foi realizada revisão técnica independente e corrigidos cinco achados: versão concorrente após anexos, autoria conflituosa no histórico, revogação concorrente, saída de formulário por links internos e observações sem nota. Os testes de regressão estão em `tests/`.
 
@@ -144,7 +156,7 @@ npx playwright install --with-deps chromium
 npm run test:e2e
 ```
 
-**A suíte Playwright foi preparada, mas não executada neste ambiente.** A inspeção visual alcançou login e estrutura inicial do painel; o navegador bloqueou a continuação por sua política de acesso. Isso não substitui a homologação de telas autenticadas no deployment.
+**Validação de 12/11/2026:** os 14 cenários Playwright passaram em desktop e tablet, incluindo login real, troca obrigatória de senha, painel de módulos, isolamento da Manutenção, edição de permissões e o fluxo completo de avaliação/revisão do 5S. O painel foi inspecionado visualmente em 1366×900 e 768×1024. Os testes usam apenas a prévia descartável; a homologação do deployment continua separada.
 
 Para uma demonstração local descartável, sem Neon:
 

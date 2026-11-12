@@ -3,7 +3,7 @@ import { useState,useEffect,useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft,ArrowRight,Save,Send,CheckCircle2,RotateCcw,Camera,Trash2,Clock3,FileCheck2,Info,ShieldCheck,ChevronLeft,ChevronRight } from 'lucide-react';
 import { SENSES,SCORE_OPTIONS } from '@/lib/questions';
-import { scoreLabel,type User } from '@/lib/domain';
+import { scoreLabel,isManager,type User } from '@/lib/domain';
 import { preparePhoto } from '@/lib/client-image';
 import { buildAnswerPayload,mergeEvidenceRefresh } from '@/lib/audit-draft';
 import { useUnsavedGuard } from './unsaved-guard';
@@ -36,7 +36,7 @@ export function AuditDetail({id,user}:{id:string;user:User}){
   if(!d)return <>{error?<Notice>{error}</Notice>:<Loading/>}</>;
   const audit=d.audit,photos=d.evidence.filter((e:any)=>e.sense===sense),prev=d.previous;
   const previousScore=prev.summaries.find((s:any)=>s.sense===sense)?.score;
-  const reviewing=audit.status==='REVIEW'&&user.role!=='AUDITOR'&&audit.auditor_id!==user.id;
+  const reviewing=audit.status==='REVIEW'&&isManager(user)&&audit.auditor_id!==user.id;
   return <>
     <Link className="back-link" href="/auditorias"><ArrowLeft size={16}/>Todas as auditorias</Link>
     <div className="page-heading detail-heading"><div><span className="eyebrow dark">{audit.unit}</span><h1>{audit.sector}<span className="heading-dot">.</span></h1><div className="audit-meta"><span><Clock3 size={14}/>{formatDate(audit.date)}</span><span>Auditor: <b>{audit.auditor_name}</b></span><StatusBadge status={audit.status}/>{audit.source==='HISTORICAL'&&<span className="subtle-tag">Histórico importado</span>}</div></div><div className="audit-overall"><span>NOTA GERAL</span><Score value={audit.overall}/></div></div>

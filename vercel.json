@@ -1,6 +1,18 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
-  "regions": ["iad1"],
-  "functions": { "app/api/**/route.ts": { "maxDuration": 60 } }
+  "regions": [
+    "iad1"
+  ],
+  "functions": {
+    "app/api/**/route.ts": {
+      "maxDuration": 60
+    }
+  },
+  "crons": [
+    {
+      "path": "/api/pcm/jobs/run",
+      "schedule": "0 9 * * *"
+    }
+  ]
 }

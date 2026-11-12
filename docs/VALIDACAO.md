@@ -1,4 +1,21 @@
-# Validação da entrega — 06/11/2026
+# Validação da atualização — 12/11/2026
+
+- `npm run check`: TypeScript, 34 testes de domínio/integração/migração/segurança e varredura de segredos aprovados.
+- `npm run test:e2e`: 14 cenários aprovados, zero falhas, em desktop e tablet.
+- `npm run build`: build de produção aprovado, incluindo as rotas `/modulos` e `/manutencao`, sem conexão ao banco real.
+- `npm run check:secrets` e `git diff --check`: aprovados após as alterações finais.
+- Revisão técnica independente de autorização, API, migrações, fotos e interface: nenhum problema concreto identificado.
+- Inspeção visual do painel: 1366×900 e 768×1024, sem transbordamento horizontal.
+
+As novas verificações cobrem preservação de Admin/Auditor no 5S, isolamento da Manutenção inclusive em APIs/fotos, consulta sem edição, operação restrita às atribuições, gestão, revogação de sessões e requisições já autenticadas. As migrações foram reaplicadas em PGlite para confirmar que não restauram permissões revogadas nem redefinem senhas. O provisionamento da Michelli foi validado com a senha temporária solicitada, troca obrigatória, prazo de 72 horas e preservação de conta existente.
+
+No navegador foram exercitados login com senha temporária, troca de senha, chegada ao painel, navegação por cartões, edição dos subníveis pelo Master, bloqueio do 5S para manutenção e todo o fluxo anterior de auditoria. Os formulários sensíveis usam POST e aguardam a hidratação para permitir envio; a navegação de autenticação recarrega a sessão após trocar o cookie.
+
+**Produção:** nenhuma migração foi aplicada ao Neon e nenhum deploy foi realizado, pois não há credenciais de produção no workspace. Para ativar a atualização, executar `npm run db:migrate` com o banco correto e publicar esta versão. A validade da senha inicial começa quando a migração 004 é aplicada; contas existentes mantêm a senha atual.
+
+---
+
+# Registro da entrega anterior — 06/11/2026
 
 ## Evidências executadas
 

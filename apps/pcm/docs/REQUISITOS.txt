@@ -1,0 +1,620 @@
+PROMPT PARA O CODEX — PROJETO PCM / GESTÃO DE MANUTENÇÃO
+Base de requisitos: manut.xlsx. Preparado em 12/11/2026.
+
+Leia todo o pedido antes de modificar o repositório. Desenvolva uma aplicação funcional, com persistência, autorização no servidor, importação validada e testes dos fluxos críticos. Não entregue apenas telas demonstrativas, dados fictícios ou um plano de implementação.
+
+1. OBJETIVO E DECISÕES JÁ DEFINIDAS
+
+Criar um projeto de PCM — Planejamento e Controle da Manutenção — separado do projeto atual, dentro deste mesmo repositório. O repositório já possui conexão com PostgreSQL no Neon. Investigue e aproveite sua arquitetura, tecnologias e configurações existentes.
+
+O novo projeto deverá permitir:
+- Solicitar manutenção, acompanhar o atendimento e receber respostas.
+- Planejar, distribuir, executar e encerrar ordens de manutenção.
+- Cadastrar máquinas por código e organizar seus componentes e subcomponentes em árvore, até o item final necessário.
+- Anexar o manual digital de máquinas e componentes.
+- Agendar preventivas recorrentes e acompanhar sua execução.
+- Consultar, dentro de cada máquina, o histórico das corretivas e preventivas, incluindo intervenções nos componentes.
+- Dispor de uma tela exclusiva de indicadores, distinta da visão operacional.
+- Aproveitar a planilha para cadastro de peças, relações de aplicação, consulta de estoque, consumo e acompanhamento de pendências de materiais.
+- Manter o acesso restrito e configurar permissões independentes para o projeto atual e para o PCM.
+
+EXIGÊNCIA VISUAL DO USUÁRIO: seguir o layout do sistema atual. Reutilize o padrão existente de navegação, menus, cores, tipografia, espaçamento, ícones, botões, tabelas, formulários, filtros, diálogos, notificações e responsividade. O usuário deve reconhecer o PCM como parte da mesma família de sistemas. Não criar uma identidade visual nova.
+
+Adote as decisões detalhadas neste documento como ponto de partida. Resolva escolhas rotineiras pela arquitetura existente e registre as decisões. Pergunte somente quando faltar uma decisão de negócio que altere materialmente o resultado e não possa ser resolvida com estas regras. Continue as partes independentes enquanto isso.
+
+2. PRIMEIRA AÇÃO: ENTENDER O REPOSITÓRIO SEM INTERFERIR NO SISTEMA ATUAL
+
+Antes de implementar:
+1) Leia AGENTS.md, documentação, manifests, scripts, rotas, configuração de deploy e migrações.
+2) Identifique o projeto atual e seu propósito. Não presuma que seja 5S ou qualquer outro projeto citado fora deste repositório.
+3) Identifique autenticação, sessões, usuários, permissões, organização/unidade, estrutura de dados, ORM e conexão Neon.
+4) Localize o design system e telas atuais representativas: listagem, formulário, detalhe e painel. Registre quais componentes serão reutilizados.
+5) Inspecione o esquema do banco e as migrações existentes, inicialmente com operações de leitura. Não imprima credenciais.
+6) Localize manut.xlsx. Se não estiver disponível, implemente o fluxo de importação a partir do mapeamento abaixo e registre a importação real como pendência. Não invente dados para preencher essa ausência.
+7) Registre uma linha de base dos checks relevantes do sistema atual. Informe falhas preexistentes separadamente.
+8) Apresente um resumo curto do que encontrou, da estrutura escolhida e do plano de execução; em seguida execute o trabalho autorizado.
+
+SEPARAÇÃO DO PROJETO:
+- Crie uma aplicação/projeto PCM em diretório próprio, por exemplo apps/pcm, ou na convenção equivalente já usada pelo repositório.
+- Separe domínio, serviços, rotas, testes, documentação, scripts e migrações de PCM. Não transformar o projeto atual em um sistema de manutenção.
+- Se já houver monorepo/workspaces, siga sua organização. Se não houver, estabeleça o menor isolamento necessário, sem migrar ou reestruturar toda a aplicação atual.
+- Preserve os comandos de desenvolvimento, builds, rotas e configuração de publicação do sistema atual. Adicione comandos específicos para o PCM.
+- Reutilize autenticação e componentes compartilhados por contratos explícitos. Não copie usuários e senhas para um cadastro paralelo.
+- Se forem necessárias extrações para um pacote compartilhado, limite-as aos componentes estáveis e preserve a compatibilidade dos imports e do comportamento atual.
+- Use a mesma stack quando compatível. Não imponha um framework, biblioteca ou ORM diferente apenas por preferência.
+- A rota /pcm é uma sugestão de acesso quando compatível com o roteamento existente. O projeto deve continuar isolado mesmo compartilhando entrada, login e aparência.
+
+3. O QUE EXISTE NA PLANILHA: EVIDÊNCIAS E LIMITES
+
+O arquivo analisado possui sete abas. As contagens abaixo consideram linhas com identificadores, excluindo cabeçalhos, totais e linhas sem registros de negócio. Recalcule-as no arquivo efetivamente recebido e documente diferenças.
+
+3.1 LISTA DE PEÇAS
+- Cabeçalhos na linha 4; registros nas linhas 5 a 128.
+- 124 linhas de peças, correspondentes a 123 códigos distintos.
+- Colunas A:V:
+  ITEM; DESCRIÇÃO; FORNECEDOR; VALOR UNITÁRIO; VALOR TOTAL; UNID. MEDIDA; EST. MIN.; ESTOQUE; OC ABERTA; SALDO; AGO; SET; OUT; MÉDIA; LEAD TIME; ESTOQUE DE SEG.; AÇÃO; QTDE. DE COMPRA; CENTRO DE CUSTO; LOCAL DE USO; NARRATIVA; OBS.
+- O código de material 9000786 aparece nas linhas 35 e 118. Trate como repetição a reconciliar, não como duas máquinas ou duas peças diferentes no catálogo.
+- As narrativas contêm aplicações como JET-400, JET-2000, JIT-2000 e conjuntos de pintura/bombas GRACO. São indícios de aplicação, não um inventário técnico de máquinas validado.
+- LOCAL DE USO, CENTRO DE CUSTO e NARRATIVA podem ajudar a propor vínculos; não comprovam a árvore física nem o código patrimonial de uma máquina.
+
+3.2 ESTOQUE
+- Cabeçalhos na linha 1; 595 registros com código no arquivo analisado.
+- Colunas: Codigo; Descrição; Estabel; Dep; Lote; Unidade; Quantidade; Familia; Grupo; Pr Médio; Total; Dias Estoque.
+- Existem diferentes depósitos e materiais que não são exclusivamente de manutenção. Há variações como ALM e alm.
+- Preservar estabelecimento, depósito, lote, unidade e origem da informação. Não importar todos os materiais como componentes de máquinas.
+
+3.3 BAIXAS
+- Cabeçalhos na linha 2; 1.103 registros com data e código nas linhas 3 a 1105.
+- Colunas de negócio B:N:
+  DATA DA SOLICITAÇÃO; ANO; MÊS; N° DA SOLICITAÇÃO; SOLICITANTE; CÓD. ITEM; ITEM; QTDE; UND. MEDIDA; VALOR; CC; LOCAL DE USO; OBS.
+- O título é PLANEJAMENTO DE COMPRAS, embora a aba se chame BAIXAS. Preserve essa ambiguidade no diagnóstico; não deduza o significado só pelo nome.
+- São registros de materiais/solicitações, sem evidência suficiente de ordens de manutenção executadas.
+- Verifique se VALOR é unitário ou total antes de calcular custos. Preserve o valor bruto quando não for possível confirmar.
+
+3.4 Insumos Manu.Pintura-Jateamento
+- Cabeçalhos na linha 1; 46 linhas identificadas, com 45 códigos de material distintos.
+- Colunas: ORDEM DE COMPRA; PEDIDO; CÓDIGO; DESCRIÇÃO; QTD; DATA DE SOLICITAÇÃO; STATUS; QNT RECEBIDA.
+- Há 38 linhas CONFIRMADO e 8 NAO CONFIRMADA no arquivo analisado.
+- QNT RECEBIDA contém textos como RECEBIDO 1 UN, RECEBIDO 8 e 1 UN. Campo vazio não prova recebimento zero.
+- Ordens e pedidos são identificadores, mesmo quando o Excel os apresenta numericamente. Preserve a representação original, inclusive ordem como 119.16, sem converter para moeda ou arredondar.
+
+3.5 CE0302
+- Cabeçalhos na linha 1; 21.296 registros de movimentação nas linhas 2 a 21297.
+- Os registros analisados abrangem 02/01/2026 a 13/10/2026.
+- Colunas A:AI:
+  Est; Cod Item; Desc Item; Data Trans; Dep; Localização; Tipo; Esp; Un; Quantidade; Valor MAT; Valor MOB; Valor GGF; Valor ICMS; Valor IPI; Valor PIS; Valor COFINS; Lote; Cod Referência; Emitente; Série; Documento; Natur Oper; Conta; Centro Custo; UNeg; Grupo Estoque; Ordem Prod; Ordem Compra; Referência; Cod Obsoleto; Data NF Saída; Usuário; Ano; Mês.
+- A dimensão da aba alcança a linha 1.048.576, onde existe uma fórmula de total na coluna D. Isso não representa um milhão de movimentações.
+- Existem entradas e saídas de diversas espécies, incluindo NFE, REQ, RM, devoluções e inventários. Não classifique toda saída como consumo de manutenção.
+- Para consumo, é necessário mapear espécie, sentido, estornos e escopo. Sem mapeamento validado, mostrar os dados como movimentações importadas.
+
+3.6 TD_Analise
+- Aba oculta de consolidação/tabela dinâmica de entradas e saídas por item.
+- Usar como conferência auxiliar, nunca importar seus totais como novas movimentações.
+
+3.7 VARIAVEIS
+- Aba oculta com meses e relação de centros de custo/títulos nas colunas D:E.
+- Usar como tabela auxiliar de mapeamento. Manter a vinculação ao estabelecimento/unidade quando conhecida.
+
+LIMITES IMPORTANTES:
+- A planilha não contém um cadastro completo e validado de ativos, uma árvore técnica completa, planos preventivos ou histórico de ordens corretivas e preventivas.
+- Não fabricar esses cadastros, datas, tempos, falhas, usuários ou ordens a partir de consumo de materiais.
+- Há fórmulas, buscas, resultados armazenados em cache e referências a datas. Não traduzir todas as fórmulas literalmente para regras do aplicativo.
+- As fórmulas de reposição não são uniformes e a unidade do LEAD TIME não está explícita. A média de consumo e as sugestões de compra devem ter metodologia própria, configurada e documentada.
+- O saldo ESTOQUE - EST. MIN. + OC ABERTA da planilha é um indicador de planejamento, não o saldo físico. Nomeie os conceitos corretamente.
+- Não somar BAIXAS e CE0302 indiscriminadamente: podem representar o mesmo evento de material sob visões diferentes.
+- Uma data de atualização na capa não comprova a atualidade de todos os extratos. Exibir a data de referência de cada fonte quando conhecida e registrar quando ela não for informada.
+
+4. EXPERIÊNCIA E TELAS, SEGUINDO O SISTEMA ATUAL
+
+Usar português do Brasil, moeda BRL e fuso America/Sao_Paulo na interface. Armazenar instantes com timezone e tratar datas de calendário sem deslocamento indevido. Preservar o padrão visual e de acessibilidade do projeto atual.
+
+Navegação proposta, adaptável ao menu existente:
+- Visão geral.
+- Solicitações.
+- Ordens de manutenção.
+- Ativos.
+- Preventivas / agenda.
+- Materiais e aplicações.
+- Indicadores.
+- Importações.
+- Configurações, conforme permissão.
+
+4.1 Visão geral operacional
+- Chamados novos, ordens em atendimento, máquinas indisponíveis, preventivas próximas e atrasadas, pendências de material.
+- Atalhos claros para abrir solicitação, cadastrar ativo e programar manutenção.
+- Listas acionáveis que levem ao registro correspondente.
+- Manter a análise histórica mais extensa na tela dedicada de Indicadores.
+
+4.2 Listagens
+- Pesquisa por código, descrição, máquina, componente e número da ordem.
+- Filtros combináveis, paginação, ordenação e contagem total real.
+- Visualização em lista e, para ordens, quadro por status quando houver padrão equivalente no sistema.
+- Colunas de prazo, prioridade, responsável, máquina, componente e situação.
+- Estados de carregamento, vazio, erro, sem permissão e sucesso.
+
+4.3 Uso em campo
+- Layout responsivo em computador, tablet e celular.
+- Abertura simples: selecionar/ler código da máquina, descrever problema, informar impacto e anexar foto opcional.
+- Campos complementares no atendimento e planejamento, sem sobrecarregar a abertura.
+- Navegação por teclado, foco visível e estados que não dependam somente de cor.
+- Formulários preservam o preenchimento após erro de validação ou falha de conexão.
+- Evitar dupla submissão de ações e deixar claro quando um registro ainda não foi salvo.
+
+5. AUTENTICAÇÃO E PERMISSÕES INDEPENDENTES POR PROJETO
+
+Esta parte é obrigatória. O projeto atual deve continuar restrito, e o novo PCM também.
+
+5.1 Reaproveitar identidade
+- Usar o provedor de identidade, usuários, autenticação, política de sessão e recuperação de senha existentes.
+- Evitar um segundo login e uma segunda tabela de credenciais.
+- Se as aplicações rodarem em origens distintas, integrar pelo mecanismo suportado pela autenticação existente, sem improvisar compartilhamento inseguro de cookies ou tokens.
+- Nomes em SOLICITANTE ou Usuário da planilha são dados históricos. Não criar automaticamente contas, senhas, convites ou permissões para essas pessoas.
+
+5.2 Acesso por módulo
+- Criar/usar um registro de módulos com chaves estáveis para o projeto atual e para PCM.
+- Permitir ao gestor de acessos existente configurar separadamente o acesso a cada módulo.
+- Um usuário pode ter apenas o módulo atual, apenas PCM, ambos ou nenhum, conforme concessões explícitas.
+- Preservar a política efetiva atual na migração. Não conceder PCM automaticamente a todos os usuários já cadastrados.
+- O acesso do módulo atual deverá ficar configurável por usuário/grupo, mantendo as restrições vigentes como ponto de partida.
+- Preservar a autoridade de administração de acessos do administrador/master atual. Não criar um novo superusuário nem bloquear o administrador existente.
+- Administrar concessões e visualizar os dados operacionais são permissões distintas quando o sistema já trabalha dessa forma.
+- Ao entrar, mostrar somente os módulos autorizados. Para mais de um, usar o seletor/entrada mais compatível com o sistema atual. Para nenhum, informar que o usuário aguarda liberação.
+- Bloquear também URL direta, APIs, downloads, exportações, pesquisas e indicadores. Ocultar um menu não é autorização.
+
+5.3 Perfis de referência para PCM
+- Solicitante: cria e acompanha suas solicitações, responde esclarecimentos e vê a resposta técnica autorizada.
+- Técnico: atende ordens atribuídas ou de sua equipe autorizada; registra execução, leituras, materiais, fotos e resposta técnica.
+- Planejador PCM: faz triagem, prioriza, distribui, agenda, gerencia ativos e preventivas e acompanha indicadores no seu escopo.
+- Gestor da manutenção: supervisiona, valida encerramentos quando configurado, consulta custos e relatórios e acompanha equipes.
+- Consulta/auditoria: leitura e exportação apenas quando concedidas, sem alterar registros.
+
+Trate esses perfis como conjuntos de permissões, não como condicionais espalhadas no código. Adapte às funções e grupos já existentes.
+
+Permissões granulares mínimas: visualizar/criar/editar ativos; abrir solicitação; consultar próprias ou todas as solicitações; triar; atribuir/programar; executar; responder; validar/encerrar; reabrir; cancelar; gerenciar preventivas; consultar/editar custos; consultar materiais; importar/confirmar importação; visualizar indicadores; exportar; administrar parâmetros e concessões.
+
+Aplicar escopo por organização/empresa/unidade conforme a estrutura existente. Nunca confiar em organization_id ou unidade enviados pelo cliente para definir autorização. Toda associação entre registros também deve respeitar o escopo. Se o sistema não for multiempresa, não criar um produto multi-tenant completo sem necessidade.
+
+6. ATIVOS: MÁQUINAS, COMPONENTES E SUBCOMPONENTES
+
+6.1 Identificação
+- UUID/ID interno estável e código de negócio editável sob permissão.
+- Código obrigatório para máquinas e identificador próprio para componentes cadastrados individualmente.
+- Permitir código manual e sugestão automática configurável, sem obrigar um padrão inventado.
+- Código único no escopo da organização; tratar espaços e diferenças de caixa para evitar duplicidade, preservando a representação original.
+- Guardar códigos como texto, inclusive identificadores numéricos com zeros à esquerda.
+- Separar código da máquina, patrimônio, número de série, referência do fabricante e código ERP do material.
+- Ao alterar código, preservar o ID, as relações, o histórico e a trilha da alteração.
+
+6.2 Dados do ativo
+- Código, nome, descrição, categoria/família e tipo de nó.
+- Organização, unidade, setor, localização e centro de custo, conforme o cadastro existente.
+- Fabricante, modelo, número de série, patrimônio e datas conhecidas de aquisição/instalação.
+- Situação operacional e ciclo de vida: ativo, em manutenção, reserva e desativado, com regras documentadas.
+- Criticidade simples configurável: alta, média e baixa, com justificativa.
+- Equipe/responsável e observações técnicas.
+- Foto, manuais e demais anexos.
+- Medidores manuais opcionais, como horímetro ou ciclos, sem depender de sensores para funcionar.
+- Campos desconhecidos ficam vazios e identificados como não informados, sem dados fictícios.
+
+6.3 Árvore técnica
+- Relação pai-filho de profundidade variável: máquina, sistema, conjunto, subconjunto, componente e item final.
+- Não limitar o banco a colunas fixas de componente_1, componente_2 etc., nem copiar o limite de níveis de um software comercial.
+- Usar estrutura adequada a PostgreSQL/ORM existente, com consultas eficientes de ancestrais e descendentes.
+- Navegação em árvore com expansão progressiva, pesquisa e caminho completo do ativo.
+- Impedir ciclos, autoparentesco, vínculos entre organizações incompatíveis e filhos órfãos.
+- Garantir essas regras também em alterações concorrentes, não apenas na interface.
+- Permitir movimentar componentes com permissão, data efetiva e motivo. Preservar os períodos de instalação e o histórico da localização anterior.
+- Não modificar retroativamente os dados históricos de uma ordem quando a máquina ou o componente mudar de setor, centro de custo ou pai.
+- Bloquear exclusão física de ativo com histórico ou filhos. Usar desativação controlada.
+
+6.4 Peça de catálogo não é ativo físico
+- Um material ERP pode ser aplicável a várias máquinas e componentes.
+- A relação de aplicabilidade deve ser muitos-para-muitos, com referência/posição e quantidade prevista quando conhecidas.
+- Dois motores físicos podem ter o mesmo modelo ou código de material e IDs, séries e históricos diferentes.
+- Itens comuns, como parafusos e anéis, podem ficar somente na lista de peças aplicáveis; permitir cadastro individual quando o usuário precisar de histórico próprio.
+- A decisão de rastrear uma peça como ativo individual deve ser explícita.
+- Não transformar automaticamente as 124 linhas da LISTA DE PEÇAS em 124 ativos físicos.
+
+6.5 Tela de detalhe da máquina/componente
+Abas ou seções no padrão existente:
+- Resumo técnico e situação atual.
+- Árvore de componentes.
+- Histórico de manutenção.
+- Planos preventivos e próximas ocorrências.
+- Materiais aplicáveis e utilizados.
+- Manuais/documentos.
+- Indicadores do ativo.
+
+No histórico, mostrar corretivas e preventivas com número, data, tipo, componente, problema, serviço executado, responsável, parada, materiais, custos autorizados e evidências. Abrir a ordem completa a partir da linha.
+
+Filtros: intervalo, tipo, status e incluir descendentes. Diferenciar intervenção direta na máquina de intervenção em um componente. Consolidar registros únicos sem contar a mesma ordem mais de uma vez por pertencer a vários níveis da árvore.
+
+7. SOLICITAÇÕES, ORDENS, ATENDIMENTO E RESPOSTA
+
+7.1 Solicitação de manutenção
+- Número legível gerado no servidor, único e seguro sob concorrência, separado do ID interno.
+- Solicitante, data/hora, unidade/setor, máquina e componente quando conhecido.
+- Descrição do problema, impacto percebido, indicação de máquina parada, prioridade sugerida e fotos opcionais.
+- Permitir solicitar por localização quando a máquina ainda não estiver identificada; exigir o vínculo técnico antes de encerrar uma ordem que envolva equipamento.
+- Triagem com esclarecimentos, classificação e prioridade confirmada pelo PCM.
+- Aprovar/converter em ordem, rejeitar com justificativa ou vincular a uma ordem existente quando for uma comunicação duplicada.
+- A conversão deve ser idempotente: repetir a ação não gera ordens duplicadas.
+- Vincular várias solicitações à mesma ordem quando realmente se referirem ao mesmo atendimento, preservando solicitantes e respostas.
+
+7.2 Ordem de manutenção
+Tipos: corretiva, preventiva e inspeção. Urgência/emergência é atributo de prioridade, não substitui o tipo técnico.
+
+Campos principais:
+- Número, tipo, origem, solicitação/plano associado e status.
+- Máquina principal e componente alvo, com contexto histórico da instalação.
+- Descrição, prioridade, criticidade e responsável/equipe.
+- Datas previstas, prazo e estimativas de duração e homem-hora, quando conhecidas.
+- Início/fim de atendimento, execução e liberação do ativo.
+- Diagnóstico, modo de falha, causa identificada, ação executada e recomendação.
+- Checklist, medições, fotos e documentos.
+- Materiais previstos e aplicados, serviços externos e custos autorizados.
+- Necessidade de parada e vínculo aos eventos reais de indisponibilidade.
+
+7.3 Fluxo e regras
+Manter entidades de solicitação e ordem separadas e relacionadas. Proposta de estados:
+- Solicitação: aberta, em triagem, convertida/vinculada, rejeitada ou cancelada. Mostrar o andamento da ordem associada ao solicitante.
+- Ordem: planejada, programada, em atendimento, aguardando, executada/aguardando validação, encerrada ou cancelada.
+- Aguardando exige motivo: peça, fornecedor, liberação da produção, condição técnica ou outro motivo registrado.
+- Toda transição precisa ser validada no servidor, registrar autor/data e respeitar a permissão.
+- A etapa de validação pode ser configurada. Padrão inicial: técnico informa execução e o PCM/gestor encerra, sem impedir configuração autorizada diferente.
+- Cancelamento e reabertura exigem motivo e permissão. Reabertura mantém o histórico anterior.
+- Rejeições, cancelamentos, alterações de prioridade e reprogramações ficam auditados.
+- Alterações concorrentes devem detectar conflito, preservando o atendimento de outro usuário.
+
+7.4 Respostas e comunicação
+- Linha do tempo com comentários, pedidos de esclarecimento, mudanças de status e resposta técnica final.
+- Distinguir resposta visível ao solicitante de nota interna da equipe.
+- Solicitante pode complementar informações no chamado autorizado.
+- Técnico registra diagnóstico e o que fez; o solicitante consulta a solução e a situação.
+- Encerramento exige resumo do serviço, resultado e condição do ativo. Exigir causa somente quando aplicável; permitir causa ainda não determinada com justificativa.
+- Notificações dentro do sistema para atribuição, resposta, alteração relevante e preventiva próxima/atrasada.
+- Usar infraestrutura de notificações existente. E-mail e WhatsApp não são pré-requisitos nem devem ser ativados por padrão.
+
+7.5 Tempo, parada e esforço são medidas diferentes
+- Registrar sessões de trabalho dos técnicos, com pausas, para homem-hora e custos.
+- Registrar eventos de falha e intervalos de indisponibilidade da máquina separadamente do status administrativo da ordem.
+- Uma máquina pode voltar a operar antes de a ordem ser encerrada.
+- Uma ordem pode estar aguardando peça enquanto a máquina continua operando.
+- Dois técnicos por uma hora representam duas horas-homem e não duas horas de parada da máquina.
+- Uma falha pode exigir várias ordens. O evento de falha deve continuar único para indicadores.
+- Falha de componente só gera indisponibilidade da máquina quando houver perda de função explicitamente registrada.
+
+8. PREVENTIVAS E AGENDA
+
+8.1 Plano preventivo
+- Código, nome, descrição, ativo/componente, responsável/equipe e situação.
+- Frequência por dias, semanas, meses e anos; data inicial e término opcional.
+- Checklist de tarefas, orientações, riscos/cuidados pertinentes, duração estimada e materiais previstos.
+- Próxima ocorrência, antecedência para geração da ordem, prazo/tolerância e necessidade de parada.
+- Permitir usar um modelo de plano para vários ativos, mantendo ocorrências e históricos individuais.
+- Anexos e manual disponível na execução.
+- Planos versionados para que alterações futuras não reescrevam checklists ou prazos de ordens já geradas.
+
+8.2 Recorrência
+- Implementar geração real pelo mecanismo de agendamento/worker compatível com a hospedagem do repositório.
+- PostgreSQL/Neon é o banco, não presumir que ele oferece um processo de agendamento permanente para esta aplicação.
+- Não depender de uma pessoa abrir a tela para gerar preventivas.
+- Não usar setInterval no navegador como agendador de produção.
+- Jobs autenticados, com execução observável, reprocessamento e chave idempotente por plano, ativo e ocorrência.
+- Garantir no banco que execuções concorrentes não gerem a mesma ocorrência/ordem duas vezes.
+- Tratar execução atrasada do agendador sem criar uma avalanche descontrolada de ordens ou apagar pendências.
+- Registrar falhas de execução para administradores sem expor dados sensíveis.
+
+8.3 Regras de calendário
+- Base inicial: calendário fixo. Encerrar uma preventiva atrasada não desloca silenciosamente todas as datas seguintes.
+- Datas de fim de mês usam o último dia válido quando necessário, preservando a regra de origem. Tratar 29/02 e anos bissextos.
+- Aplicar o fuso da unidade, inicialmente America/Sao_Paulo.
+- Reprogramar altera a data operacional, mas mantém o vencimento original e a justificativa para medir aderência.
+- Pausar um plano impede novas gerações dentro da regra, sem excluir ordens existentes ou atrasos anteriores.
+- Mudanças e cancelamentos de ocorrências têm histórico e motivo.
+- Se forem implementados horímetros/ciclos na primeira entrega, exigir leituras manuais datadas, regra de reinício/troca do medidor e tratamento de leitura regressiva. Caso contrário, deixar esses gatilhos para expansão, entregando integralmente o agendamento por calendário.
+
+8.4 Tela de agenda
+- Visões de mês, semana e lista.
+- Filtros por unidade, setor, ativo, responsável, tipo, prioridade e status.
+- Destaque de próximas, vencendo e atrasadas.
+- Mostrar conflitos de programação com justificativa, sem afirmar disponibilidade de equipe quando não houver capacidade cadastrada.
+- Reprogramação deve validar permissão e registrar motivo, inclusive se a interface permitir arrastar eventos.
+
+9. MATERIAIS E APLICAÇÕES: APOIO AO PCM, COM ESCOPO CONTROLADO
+
+Implementar nesta entrega:
+- Catálogo de materiais com código, descrição, referências do fabricante, fornecedor, unidade, mínimo, estoque de segurança e aplicações em ativos.
+- Consulta de saldo importado por estabelecimento, depósito e lote, com data de referência e fonte.
+- Lista de materiais previstos e efetivamente utilizados na ordem, com unidade, quantidade e custo registrado no momento da aplicação.
+- Devoluções/correções de apontamento com rastreabilidade; preservar o registro original e impedir dupla contabilização.
+- Reservas de planejamento vinculadas à ordem, distintas de baixa física.
+- Consultas de consumo por material, período, centro de custo e ativo somente quando houver vínculo comprovado.
+- Pendências de peças para atendimento e consulta de pedidos de compra importados.
+- Alertas de itens abaixo dos parâmetros configurados.
+
+AUTORIDADE DO ESTOQUE:
+- Na primeira entrega, o saldo importado é uma fotografia da fonte externa. Não simular sincronização em tempo real.
+- Aplicar material numa ordem registra consumo operacional no PCM; não significa efetivar uma baixa no Datasul/ERP.
+- Reservas, consumos ainda não conciliados e saldo da fonte devem aparecer com nomes distintos.
+- Não subtrair indiscriminadamente consumos locais de um saldo importado que talvez já contenha a mesma baixa.
+- Somente exibir um saldo disponível/projetado reconciliado quando houver uma regra explícita de data de referência e conciliação. Caso contrário, mostrar saldo informado e pendências separadamente.
+- Um novo extrato não pode gerar novamente todas as entradas e saídas sobre o saldo anterior.
+- Não implementar um ERP de estoque, fiscal ou compras como parte deste pedido.
+
+COMPRAS E REPOSIÇÃO:
+- Distinguir quantidade pedida, recebida, cancelada e saldo a receber.
+- Não incluir pedido não confirmado como recebimento garantido.
+- Recebimento parcial deve considerar apenas a quantidade pendente. Valor ausente é desconhecido até revisão.
+- LEAD TIME requer unidade explícita antes de entrar no cálculo. Não assumir dias ou meses a partir do valor 1,5.
+- Mostrar sugestão de reposição somente quando unidade, período de consumo, parâmetros e fonte estiverem definidos. Expor a memória do cálculo.
+- Média de consumo deve usar período e ano corretos. Mês parcial não pode ser comparado a mês completo sem regra visível.
+- Pedidos e sugestões são acompanhamento de planejamento. Não emitir compras nem escrever em ERP automaticamente.
+
+10. MANUAIS DIGITAIS E ANEXOS PRIVADOS
+
+- Upload funcional de manual em PDF, associado à máquina ou componente.
+- Título, tipo, idioma, revisão/versão, data, fabricante, autor do envio, tamanho e indicação de documento vigente quando aplicável.
+- Vários manuais por ativo e histórico das versões anteriores.
+- Visualização e download pelos usuários autorizados; acesso também dentro da ordem e do plano preventivo.
+- Mostrar documentos dos ancestrais em seção identificada, quando útil. Não apresentá-los como anexos próprios do componente.
+- Permitir link externo opcional para manual, deixando clara sua origem e disponibilidade.
+- Validar tipo real do arquivo, tamanho configurável, nome seguro e autorização de upload/substituição/exclusão.
+- Usar armazenamento durável privado já disponível; banco guarda metadados e referência. Não guardar PDFs em Base64 no Neon ou em diretório público.
+- URLs assinadas curtas, quando o provedor exigir, somente após autorização. Não expor manual privado por uma URL estática pública.
+- Em desenvolvimento, um adaptador privado local pode ser usado se não houver storage configurado; documentar claramente a configuração necessária para produção. Não depender de disco efêmero da hospedagem.
+- A remoção de uma versão não pode quebrar silenciosamente evidências históricas. Manter referência/versionamento e aplicar retenção conforme o padrão existente.
+
+11. TELA EXCLUSIVA DE INDICADORES
+
+Criar uma página de Indicadores com dados reais, filtros compartilhados e detalhamento das origens. Reutilizar os componentes de gráficos e cartões do sistema atual.
+
+Filtros: período, organização/unidade, setor, máquina, componente, incluir descendentes, tipo de manutenção, equipe, responsável, prioridade e criticidade. Filtros de negócio adicionais não devem alterar silenciosamente o significado de MTBF e disponibilidade: explicitar a população e os filtros aplicáveis a cada métrica.
+
+Cada indicador precisa mostrar nome, unidade, período, fórmula/definição acessível, qualidade dos dados e lista de registros que o compõem. Alterar filtros deve atualizar cartões, gráficos e detalhes de forma consistente.
+
+11.1 Indicadores operacionais obrigatórios
+- Solicitações abertas no período, por data de abertura.
+- Ordens abertas, executadas e encerradas, cada uma pela sua respectiva data.
+- Ordens pendentes e atrasadas em uma data de corte, reconstruídas pelo histórico de status.
+- Ordens por status, prioridade, tipo, unidade e responsável.
+- Tempo até o primeiro atendimento humano efetivo. Não contar automação como resposta técnica.
+- Tempo total de solução, separado do tempo de trabalho técnico.
+- Preventivas previstas, realizadas no prazo, realizadas com atraso e vencidas sem execução.
+- Aderência ao plano preventivo.
+- Horas-homem previstas e realizadas, com cobertura dos apontamentos.
+- Custos conhecidos por ordem, ativo, tipo e período: materiais, mão de obra e terceiros.
+- Materiais abaixo do mínimo/segurança e pendências de material por ordem.
+
+11.2 Confiabilidade e disponibilidade
+Disponibilizar as telas, os campos e cálculos, mas só apresentar resultado numérico quando existirem os dados necessários:
+
+a) MTBF
+- Para um ativo reparável: horas reais de operação observadas no recorte / eventos de falha funcional elegíveis no mesmo recorte.
+- Não usar quantidade de ordens como quantidade de falhas.
+- Não assumir 24 horas por dia, nem usar tempo calendário como operação sem configuração explícita de regime contínuo.
+- Se não houver falhas, mostrar Sem falhas observadas e a exposição conhecida. Não apresentar MTBF zero ou infinito como estimativa obtida por divisão por zero.
+- Sem exposição operacional válida, apresentar Dados insuficientes e indicar o dado faltante.
+
+b) MTTR
+- Soma dos tempos efetivos de reparo dos eventos reparados elegíveis / quantidade desses eventos.
+- Registrar intervalos de reparo e distinguir espera administrativa, liberação operacional e esforço em homem-hora.
+- Usar tempo decorrido de reparo do ativo conforme definição documentada, com união de intervalos sobrepostos; não somar o tempo simultâneo de dois técnicos como dois tempos de parada.
+- Evento sem intervalo confiável não vira reparo de duração zero. Indicar cobertura e exclusões.
+
+c) Disponibilidade por manutenção
+- Horas operacionais previstas menos indisponibilidade por manutenção dentro dessas janelas, dividido pelas horas previstas, multiplicado por 100.
+- Calendários de operação/turnos devem ser configuráveis em nível suficiente para a primeira implantação.
+- Separar paradas planejadas e não planejadas.
+- Unir intervalos sobrepostos da mesma máquina antes de somar a indisponibilidade.
+- Cortar os intervalos nos limites do período e das janelas operacionais. Tratar paradas em aberto pela data de corte.
+- Não inferir parada apenas porque uma ordem está aberta ou aguardando.
+- Mostrar que se trata de disponibilidade por manutenção, e não de OEE ou disponibilidade total da produção.
+
+d) Backlog
+- Exibir quantidade de ordens pendentes.
+- Backlog em horas usa estimativas remanescentes válidas; mostrar quantas ordens não possuem estimativa.
+- Backlog em semanas = horas-homem pendentes / capacidade líquida semanal disponível da equipe.
+- Sem capacidade ou estimativas suficientes, não inventar semanas. Exibir o volume conhecido e a cobertura.
+
+e) Aderência às preventivas
+- Ocorrências preventivas elegíveis com vencimento original no período e execução dentro do prazo/tolerância original / total dessas ocorrências elegíveis, multiplicado por 100.
+- Preventivas vencidas e não executadas permanecem no denominador.
+- Reprogramação não deve apagar o atraso.
+- Tratar cancelamento justificado por regra documentada e exibir a quantidade excluída. Não permitir apagar denominador para melhorar o indicador.
+
+11.3 Gráficos
+- Evolução mensal de abertura e encerramento de ordens.
+- Distribuição de corretivas, preventivas e inspeções, com base de cálculo identificada.
+- Pareto de falhas e de indisponibilidade por máquina e componente.
+- Preventivas por situação e aderência ao longo do tempo.
+- Custos por ativo, centro de custo e categoria.
+- Consumo de materiais com unidade e origem identificadas. Não somar peças, litros e quilogramas como uma quantidade única.
+
+11.4 Regras gerais
+- Sem dados é diferente de zero. Mostrar Não disponível, Sem registros ou Dados insuficientes conforme o caso.
+- A planilha pode alimentar indicadores de materiais, mas não comprova MTBF, MTTR ou preventivas históricas.
+- Totais por hierarquia devem usar eventos/ordens únicos. Não somar simultaneamente um total da máquina e os mesmos custos dos componentes.
+- Agregações de várias máquinas usam numeradores e denominadores compatíveis, nunca média simples de percentuais sem justificativa. Disponibilidade consolidada usa equipamento-hora; MTBF por população exige classificação homogênea e explicação.
+- Distinguir custo conhecido de custo completo. Ausência de taxa de mão de obra ou custo unitário não deve virar zero silencioso.
+- Canceladas e rejeitadas não viram serviços executados.
+- Não incluir OEE completo nesta etapa: faltam produção, velocidade de referência e qualidade. Deixar sua integração como evolução.
+
+12. IMPORTAÇÃO SEGURA E RECONCILIAÇÃO
+
+Implementar importação assistida de XLSX e, quando simples na stack, CSV, restrita a usuários autorizados.
+
+Etapas:
+1) Receber arquivo e detectar abas/cabeçalhos, mesmo quando não estiverem na primeira linha.
+2) Ler registros efetivos, sem tratar formatação até a linha 1.048.576 como dados.
+3) Preservar arquivo/origem, hash, aba, linha, campos brutos e versão do mapeamento.
+4) Apresentar prévia, contagens e classificação do que será criado, atualizado, associado, ignorado ou enviado para revisão.
+5) Validar campos, códigos, unidades, datas, tipos monetários, escopos e possíveis duplicidades.
+6) Confirmar a aplicação dentro da própria tela de importação, com transação/lotes consistentes e relatório final.
+7) Permitir baixar relatório de problemas sem expor dados a usuários sem permissão.
+
+REGRAS:
+- Não executar macros, fórmulas ou links externos do arquivo.
+- Não depender exclusivamente do cache de uma fórmula para cadastrar um dado mestre ou decidir um saldo.
+- Salvar resultados calculados importados como valores de referência da fonte quando necessário, diferenciando-os dos cálculos do novo sistema.
+- Tratar datas Excel conforme o sistema de datas do arquivo e números brasileiros sem perda de precisão.
+- Usar decimal para dinheiro/quantidades quando necessário e armazenar códigos como texto.
+- Reimportar o mesmo arquivo não pode duplicar registros ou aplicar saldo duas vezes. A chave de idempotência precisa considerar o escopo da organização e do tipo de importação, além do arquivo.
+- Em arquivos diferentes com períodos sobrepostos, usar identificador externo quando confiável e conciliação assistida. A ausência desse identificador não autoriza eliminar linhas legítimas só porque seus campos são iguais.
+- Um mesmo número de solicitação pode ter várias linhas e materiais. Preservar o detalhe.
+- Diferenciar conflito de cadastro, repetição de código de catálogo, repetição de evento e possível duplicidade entre fontes.
+- Normalização de depósitos como ALM/alm deve manter o valor de origem e permitir revisão.
+- Cadastros não reconhecidos ficam em área de revisão. Não inferir unidade pelo nome da empresa, nem máquina pela descrição de material.
+- Vínculos propostos entre peças e máquinas precisam ser revisáveis, com indicação da evidência e sem criar patrimônio fictício.
+- Recebimentos em texto podem gerar uma proposta de quantidade, mas aplicação exige consistência de unidade e revisão; vazio continua desconhecido.
+- Escolher uma fonte canônica por tipo de evento de material. Não adicionar o mesmo consumo proveniente de BAIXAS e CE0302 duas vezes.
+- O snapshot ESTOQUE não é uma entrada adicional a somar ao histórico de movimentações sem saldo de abertura e conciliação.
+- Perfis históricos ou centros de custo podem ser criados como referência de cadastro, mas nunca ganhar acesso ao sistema por causa da importação.
+- Registrar quem confirmou, quando, quantos registros foram aplicados, rejeitados ou mantidos pendentes.
+- A primeira importação deve funcionar primeiro em desenvolvimento/homologação. Não carregar dados reais em produção implicitamente.
+
+13. MODELO DE DADOS E NEON
+
+Usar as entidades necessárias, sem impor um diagrama incompatível com o ORM atual. Referência funcional:
+- Módulos e concessões de acesso, preferencialmente aproveitando a estrutura atual.
+- Unidades, setores, centros de custo e equipes, com reaproveitamento dos cadastros existentes.
+- Ativos, vínculos pai-filho e histórico de instalação/movimentação.
+- Materiais, referências e aplicações em ativos.
+- Snapshots de estoque, eventos importados e pendências de conciliação.
+- Solicitações e seus vínculos com ordens.
+- Ordens, histórico de status, atribuições, comentários e resposta técnica.
+- Sessões de trabalho, eventos de falha e intervalos de indisponibilidade.
+- Materiais aplicados, devoluções/correções e custos históricos.
+- Planos preventivos, versões, tarefas, ocorrências e execução dos jobs.
+- Calendários de operação e capacidade da equipe.
+- Documentos, versões, anexos e permissões de consulta.
+- Lotes de importação, linhas de staging e mapeamentos.
+- Notificações e eventos de auditoria.
+
+BANCO:
+- Usar a conexão Neon já configurada no servidor. Não expor DATABASE_URL no frontend nem registrar credenciais.
+- Preferir schema PostgreSQL dedicado pcm, com nomes qualificados e migrações próprias, se compatível com a stack. Se não for, isolar por prefixo/namespace e documentar a decisão técnica.
+- Compartilhar somente as identidades e cadastros explicitamente necessários.
+- Não renomear, apagar, recriar ou alterar destrutivamente tabelas do projeto atual.
+- Migrações aditivas, versionadas e compatíveis com o fluxo atual. Nunca usar reset, db push destrutivo ou substituição de schema para facilitar a implantação.
+- Cuidar de search_path, enums, índices e nomes para evitar colisão entre projetos.
+- Constraints, FKs e validações devem impedir relações entre escopos incompatíveis. RLS pode complementar a autorização quando compatível, sem substituir checagens no serviço/API.
+- Índices para organização, unidade, código, pai, ativo, datas, status, responsável, vencimento e identificadores externos conforme consultas reais.
+- Operações críticas transacionais: conversão de solicitação, encerramento, mudança de hierarquia, confirmação de importação e geração de preventiva.
+- Usar pool de conexões conforme a biblioteca/hospedagem atual; não abrir uma conexão por consulta sem controle.
+- Preparar migrações, instruções e rollback compatível. Rollback não deve apagar o histórico de produção para desfazer código.
+- Validar em ambiente de teste/desenvolvimento isolado. Se só houver banco de produção identificado, preparar os scripts e continuar o desenvolvimento sem executar DDL/importação de produção automaticamente.
+
+14. QUALIDADE, SEGURANÇA E AUDITORIA
+
+- Validação no servidor para todos os formulários, transições e relações.
+- Autorização em todos os endpoints, inclusive arquivos, jobs, indicadores, busca e exportação.
+- Dados do cliente nunca definem o escopo de autorização por si só.
+- Proteções de sessão, CSRF, CORS e cookies conforme a arquitetura e a autenticação existentes.
+- Limites de upload, paginação e processamento de importações para não bloquear a aplicação.
+- Comentários e textos tratados como conteúdo, sem execução de HTML/scripts não autorizado.
+- Exportações CSV protegidas contra interpretação de conteúdo do usuário como fórmula.
+- Logs úteis, com identificação do erro para suporte e mensagem clara para o usuário, sem senhas/tokens/documentos privados.
+- Auditoria de alterações relevantes: autor, ação, entidade, data e alterações essenciais; IP quando o padrão atual permitir, com minimização de dados.
+- Registrar concessões/revogações de acesso, importações, movimentação de ativos, alterações de plano, reprogramações e encerramentos.
+- Revogação de acesso impede novas requisições e novos downloads; seguir o mecanismo existente de invalidação/atualização de permissões.
+- Evitar dados reais em seeds de demonstração. Dados de teste devem ser sintéticos e ficar isolados.
+
+15. IMPLEMENTAÇÃO EM ETAPAS, COM ENTREGAS FUNCIONAIS
+
+Etapa 1 — Base isolada, visual e acessos
+- Identificar a arquitetura, criar o projeto separado e integrar identidade/permissões.
+- Entregar estrutura visual baseada no sistema atual e navegação protegida.
+- Preparar migrações próprias e comprovar que o projeto atual continua operando.
+
+Etapa 2 — Ativos, manuais e importação de referência
+- CRUD de máquinas/componentes, árvore e pesquisa por código.
+- Upload e consulta privados de manuais.
+- Importador com prévia, catálogo de peças e mapeamentos de aplicação revisáveis.
+
+Etapa 3 — Solicitações e ordens completas
+- Abrir, triar, atribuir, atender, responder, registrar materiais/tempos e encerrar.
+- Histórico por máquina e componente, comentários e notificações internas.
+
+Etapa 4 — Preventivas e agenda
+- Planos, checklists, calendário e geração automática idempotente.
+- Histórico das execuções preventivas associado ao ativo.
+
+Etapa 5 — Indicadores e conclusão
+- Página exclusiva de indicadores, qualidade dos dados e detalhamento.
+- Testes integrados, validação visual, documentação e pendências externas objetivas.
+
+Não parar depois de scaffolding, plano ou protótipo. Concluir as etapas possíveis no ambiente, mantendo um arquivo de progresso para continuidade se necessário. Dependências externas reais devem ser identificadas de modo específico, com configuração ou script preparado, sem mascarar recurso pendente como concluído.
+
+16. TESTES E CRITÉRIOS DE ACEITAÇÃO
+
+Usar as ferramentas existentes no repositório. Testar comportamento relevante, principalmente autorização, recorrência, importação e integridade. Não criar testes que apenas repitam a implementação.
+
+Cenários mínimos:
+1) Usuário sem login não acessa páginas, APIs, manuais ou exportações do PCM.
+2) Usuário com somente o módulo atual continua com suas permissões anteriores e não acessa PCM por URL/API. Usuário com somente PCM não acessa o módulo atual.
+3) Concessões do módulo atual e PCM podem ser configuradas independentemente. Revogação tem efeito nas requisições seguintes segundo a política de sessão existente.
+4) Solicitante não visualiza solicitações de outro usuário fora da sua permissão; técnico não altera uma ordem de unidade não autorizada.
+5) Uma associação de registros de organizações/unidades incompatíveis é rejeitada, inclusive em importações e jobs.
+6) Cadastrar máquina por código, pesquisar, editar código e preservar histórico. Duplicidade é rejeitada no servidor e no banco, inclusive sob concorrência.
+7) Construir uma árvore com pelo menos 20 níveis sem limite fixo de formulário/banco; impedir ciclos e duas movimentações concorrentes que criariam ciclo.
+8) Mover componente de uma máquina para outra conserva histórico de instalação e ordens. A consulta histórica mostra o contexto da época e a consolidação não duplica registros.
+9) Um mesmo código de material pode ser aplicável a várias máquinas sem duplicar o catálogo nem criar ativos físicos indevidos.
+10) Upload, visualização e download de manual funcionam com permissão. Usuário não autorizado não obtém o arquivo por ID adivinhado ou URL direta. Versão antiga continua identificável.
+11) Converter a mesma solicitação duas vezes não cria duas ordens. Reabrir e cancelar preservam a trilha.
+12) Ordem registra resposta técnica, material, horas e condição final; o histórico correto aparece na máquina e no componente.
+13) Dois técnicos por uma hora produzem duas horas-homem, mas uma única hora de intervalo do ativo. Ordens distintas da mesma falha não duplicam o evento.
+14) Duas execuções concorrentes do job preventivo geram uma única ocorrência/ordem. Repetição do job é segura.
+15) Agendamento trata dia 31, fevereiro, ano bissexto, fuso local, pausa, reativação e reprogramação sem apagar vencimento original.
+16) Reimportar manut.xlsx não duplica cadastros, movimentações ou saldos. Ler a aba CE0302 sem interpretar sua linha final de total como movimentação ou processar um milhão de linhas vazias.
+17) Repetição de código 9000786 entra na conciliação; recebimento parcial e unidade de lead time desconhecida não geram quantidades de compra incorretas.
+18) BAIXAS e CE0302 não são somadas como duas ocorrências do mesmo consumo. Snapshot de estoque não é adicionado novamente como entrada.
+19) Indicadores são confrontados com um conjunto sintético pequeno de resultados conhecidos: falta de dados, denominador zero, falha sem exposição, períodos cruzando meia-noite, paradas sobrepostas, preventiva atrasada e ordem cancelada.
+20) Custos históricos não mudam quando o preço atual de uma peça ou a taxa atual do técnico muda. Devoluções/correções não geram custo em dobro.
+21) Abertura de chamados, detalhe da máquina, atendimento, agenda, upload e indicadores são verificados em desktop e largura de celular.
+22) Comparar visualmente telas representativas do PCM com o sistema atual: shell, menu, fontes, cores, botões e formulários. Não entregar um tema diferente.
+23) Build, lint/typecheck e testes pertinentes passam. Se houver checks preexistentes quebrados, registrar a linha de base e comprovar os resultados do que foi alterado.
+
+17. OPORTUNIDADES INCLUÍDAS E LIMITE DO ESCOPO
+
+Incluídas por utilidade direta para PCM:
+- Criticidade simples dos ativos.
+- QR Code/código para localizar a máquina dentro do acesso autenticado.
+- Resposta técnica e notas internas separadas.
+- Motivos de espera e reprogramação.
+- Distinção entre tempo de reparo, parada e homem-hora.
+- Aplicabilidade de peças e apontamento de materiais nas ordens.
+- Alertas internos de preventivas e pendências de material.
+- Histórico de movimentação de componentes.
+- Trilha de auditoria e qualidade dos dados nos indicadores.
+
+QR Code não dá acesso público: ao escanear, encaminhar ao login e, após autenticação, ao ativo autorizado.
+
+Deixar somente como evolução documentada, sem implementar ou contratar agora:
+- Integração de escrita automática com ERP/Datasul e emissão automática de compras.
+- Estoque transacional/fiscal completo.
+- Sensores IoT, manutenção preditiva automática e IA para diagnosticar falhas.
+- OEE integrado à produção e coleta industrial em tempo real.
+- Aplicativo nativo/offline completo com sincronização de conflitos.
+- WhatsApp/SMS e serviços externos pagos.
+- Métodos avançados de confiabilidade como RCM/FMEA completos e gestão complexa de projetos de parada.
+
+Se identificar outra ampliação com impacto grande de custo, infraestrutura ou processo, apresente uma proposta curta com benefício, impacto e alternativa simples. Não bloqueie o núcleo por uma funcionalidade opcional nem inclua essa ampliação silenciosamente.
+
+18. ENTREGA FINAL ESPERADA DO CODEX
+
+- Aplicação PCM em projeto separado no mesmo repositório, funcional e com o layout do sistema atual.
+- Autenticação integrada e concessões independentes para PCM e projeto atual, sem ampliar acessos existentes.
+- Persistência no Neon com isolamento de domínio e migrações não destrutivas.
+- Ativos em árvore, códigos, manuais privados e histórico de manutenção por máquina/componente.
+- Solicitações, ordens, atendimento, resposta técnica e materiais/tempos registrados.
+- Preventivas recorrentes com geração automática, agenda e histórico.
+- Tela dedicada de indicadores com definições, rastreabilidade e tratamento de dados insuficientes.
+- Importador de manut.xlsx com prévia, validação, conciliação e idempotência.
+- README com comandos de execução/build/testes, variáveis de ambiente somente por nome, migrações, storage, agendador e configuração de acessos.
+- Dicionário de dados e mapeamento das sete abas; política de estoque/fonte canônica e definição dos indicadores.
+- Evidências dos testes e da validação visual. Informar exatamente o que foi executado e qualquer limitação real.
+- Instruções objetivas para liberar o módulo ao primeiro usuário autorizado, configurar o acesso ao módulo atual e executar a primeira importação em homologação.
+- Não realizar deploy de produção, abrir acesso público nem alterar credenciais/configurações de outro sistema implicitamente. Preparar tudo para revisão e publicação no fluxo existente.
+
+Ao terminar, resumir: o que foi entregue, onde está o projeto, como executar, como conceder os acessos, quais checks passaram e o que depende de configuração externa. Não declarar recurso integrado, importação realizada ou teste aprovado sem evidência.
