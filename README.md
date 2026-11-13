@@ -69,10 +69,10 @@ Esse comando exige acesso administrativo à conexão do banco; revoga as sessõe
 
 1. Extraia o projeto e envie os arquivos para um repositório privado de sua escolha. A pasta raiz é a que contém `package.json`.
 2. Importe o repositório na Vercel. Escolha o preset **Next.js**, Node.js **22.x**, instalação `npm ci` e build `npm run build`. O `vercel.json` já define o framework, a região e o limite da função.
-3. Em **Settings → Environment Variables**, configure `DATABASE_URL` e `APP_URL` para o ambiente de produção. `APP_URL` deve ser a origem da URL atribuída ao projeto ou do domínio próprio. Não cadastre a senha temporária do Master na Vercel; ela só é necessária no bootstrap local.
+3. Em **Settings → Environment Variables**, configure `DATABASE_URL` para o ambiente de produção. A origem pública de produção está definida em `vercel.json` como `APP_URL=https://stm-dev.vercel.app`. Ao mudar o domínio, atualize esse valor e publique novamente; mantenha também qualquer `APP_URL` existente no painel consistente com ele. Essa URL é pública; credenciais do banco continuam somente nas variáveis privadas. Não cadastre a senha temporária do Master na Vercel; ela só é necessária no bootstrap local.
 4. Execute `db:migrate` e `db:bootstrap` em um terminal confiável, com o `.env.local` apontando para o banco correto. Essas rotinas não rodam automaticamente em cada build.
 5. Faça o deploy e confira `/login`. Entre como Master, troque a senha, cadastre Admins/Auditores e importe o histórico.
-6. Para deployments de Preview, use outro branch/banco Neon e ajuste `APP_URL` para aquela origem. As sessões usam cookie Secure em produção; acesse por HTTPS.
+6. Para deployments de Preview, use outro branch/banco Neon e ajuste também o `APP_URL` de `vercel.json` naquele branch para a origem do ambiente de teste. As sessões usam cookie Secure em produção; acesse por HTTPS.
 
 O build funciona sem conexão ao banco. Isso permite validar o código antes de disponibilizar credenciais. Nenhuma credencial Neon acompanha esta entrega. **O projeto foi preparado, mas não foi publicado na sua conta Vercel nem conectado ao Neon real neste ambiente.**
 

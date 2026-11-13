@@ -1,6 +1,9 @@
 {
   "framework": "nextjs",
   "buildCommand": "npm run build",
+  "env": {
+    "APP_URL": "https://stm-dev.vercel.app"
+  },
   "regions": [
     "iad1"
   ],
